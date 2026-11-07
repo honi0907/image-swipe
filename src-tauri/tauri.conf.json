@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "画像スワイプ",
+  "version": "0.1.0",
+  "identifier": "com.mksgr.swipe",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "control",
+        "title": "画像スワイプ - 操作",
+        "width": 1280,
+        "height": 900,
+        "dragDropEnabled": true
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": "nsis",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE5QkYzNTBCQjVEMjE2QTgKUldTb0Z0SzFDelcvcVg0em1FOWs3NjBQbXpkQlB1akJPZS91enltOTRPdEVFUGVDMFE1K1hWdk8K",
+      "endpoints": [
+        "https://github.com/honi0907/image-swipe/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
