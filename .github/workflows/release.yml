@@ -48,5 +48,4 @@ jobs:
             - アプリ起動時に新しいバージョンがあれば更新を案内します。
           releaseDraft: false
           prerelease: false
-          uploadUpdaterJson: true
           updaterJsonPreferNsis: true
