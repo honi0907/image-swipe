@@ -29,6 +29,8 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          shared-key: swipe-release
+          add-job-id-key: false
 
       - name: Install frontend dependencies
         run: npm ci
@@ -40,6 +42,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          args: --bundles nsis
           tagName: ${{ github.ref_name }}
           releaseName: "画像スワイプ ${{ github.ref_name }}"
           releaseBody: |

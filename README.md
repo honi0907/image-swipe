@@ -43,4 +43,4 @@ npm run tauri dev
 
 ## 開発者向け
 
-バージョン番号を上げて `git tag vX.Y.Z` → `git push origin vX.Y.Z` で CI がリリースを作成します。詳細は [RELEASE.md](RELEASE.md)。
+バージョン番号を上げて `git tag vX.Y.Z` → `git push origin vX.Y.Z` で CI がリリースを作成します（**7〜9 分**かかるのが通常。`リリース確認.bat` で進捗表示）。詳細は [RELEASE.md](RELEASE.md)。
