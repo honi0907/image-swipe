@@ -1,26 +1,41 @@
-import { check } from "@tauri-apps/plugin-updater";
-import { ask } from "@tauri-apps/plugin-dialog";
+import { getVersion } from "@tauri-apps/api/app";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
-export async function checkForAppUpdates(): Promise<void> {
-  if (!import.meta.env.PROD) {
-    return;
-  }
+export const updateUiOpen = { current: false };
+
+export async function appVersion(): Promise<string> {
   try {
-    const update = await check();
-    if (!update) {
-      return;
-    }
-    const ok = await ask(
-      `バージョン ${update.version} が利用可能です。今すぐ更新しますか？`,
-      { title: "画像スワイプの更新", kind: "info" },
-    );
-    if (!ok) {
-      return;
-    }
-    await update.downloadAndInstall();
-    await relaunch();
+    return await getVersion();
   } catch {
-    /* オフラインや初回リリース前は無視 */
+    return "dev";
   }
+}
+
+export async function findUpdate(): Promise<Update | null> {
+  return check();
+}
+
+export async function downloadInstall(
+  update: Update,
+  onPercent: (percent: number | null) => void,
+): Promise<void> {
+  let total = 0;
+  let got = 0;
+  await update.downloadAndInstall(
+    (event) => {
+      if (event.event === "Started") {
+        total = event.data.contentLength ?? 0;
+        got = 0;
+        onPercent(total > 0 ? 0 : null);
+      } else if (event.event === "Progress") {
+        got += event.data.chunkLength;
+        onPercent(total > 0 ? Math.min(100, Math.round((got / total) * 100)) : null);
+      } else if (event.event === "Finished") {
+        onPercent(100);
+      }
+    },
+    { restartAfterInstall: true },
+  );
+  await relaunch();
 }

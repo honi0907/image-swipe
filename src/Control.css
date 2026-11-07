@@ -399,3 +399,79 @@
 .footer-status {
   color: #9aa3b5;
 }
+
+.footer-version {
+  color: #c5cad6;
+  font-variant-numeric: tabular-nums;
+}
+
+.footer-update {
+  padding: 0.2rem 0.55rem;
+}
+
+.update-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.update-card {
+  width: min(360px, calc(100vw - 2rem));
+  background: #1a1e26;
+  border: 1px solid #3a4150;
+  border-radius: 10px;
+  padding: 1rem 1.1rem 0.9rem;
+  color: #e8eaef;
+}
+
+.update-card h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1rem;
+}
+
+.update-card p {
+  margin: 0.25rem 0;
+  font-size: 0.85rem;
+  color: #c5cad6;
+}
+
+.update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.btn-update-ok {
+  background: #2f6fed;
+  border: none;
+  color: #fff;
+  border-radius: 4px;
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.update-percent {
+  font-size: 1.4rem !important;
+  color: #e8eaef !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.update-bar {
+  height: 8px;
+  margin-top: 0.6rem;
+  background: #2a2e38;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.update-bar-fill {
+  height: 100%;
+  background: #3dd68c;
+  transition: width 0.15s linear;
+}

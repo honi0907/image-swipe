@@ -1,6 +1,6 @@
 [package]
 name = "swipe"
-version = "0.1.1"
+version = "0.1.2"
 description = "画像スワイプ"
 authors = ["you"]
 edition = "2021"

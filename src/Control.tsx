@@ -32,7 +32,8 @@ import {
 } from "./transitionBridge";
 import { CellSwipeMeta } from "./CellSwipeMeta";
 import { ensureOverride as ensureOverrideUi, SettingsPanel } from "./SettingsPanel";
-import { checkForAppUpdates } from "./updater";
+import { UpdatePanel } from "./UpdatePanel";
+import { updateUiOpen } from "./updater";
 import "./Control.css";
 
 type MonitorDto = {
@@ -104,10 +105,6 @@ export function Control() {
     });
     ro.observe(stage);
     return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
-    void checkForAppUpdates();
   }, []);
 
   useEffect(() => {
@@ -231,6 +228,9 @@ export function Control() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (updateUiOpen.current) {
+        return;
+      }
       if (e.code === "Delete") {
         clearSelected();
         return;
@@ -561,6 +561,7 @@ export function Control() {
             ))}
           </select>
         </label>
+        <UpdatePanel />
         <span className="footer-status">
           出力中:{" "}
           {show.currentIndex >= 0 ? `コマ ${show.currentIndex + 1}` : "なし"}
