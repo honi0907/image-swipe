@@ -43,6 +43,24 @@ type MonitorDto = {
 
 const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp)$/i;
 
+/** pointerup 直後に合成されるクリックを1回だけ捨てる（次の意図的なクリックはそのまま通す） */
+function absorbSpuriousPaletteClickAfterDrag(): void {
+  const handler = (e: MouseEvent) => {
+    const target = e.target;
+    if (!(target instanceof Element) || !target.closest(".palette-cell")) {
+      return;
+    }
+    window.clearTimeout(timer);
+    document.removeEventListener("click", handler, true);
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const timer = window.setTimeout(() => {
+    document.removeEventListener("click", handler, true);
+  }, 800);
+  document.addEventListener("click", handler, true);
+}
+
 export function Control() {
   const [show, setShow] = useState<PersistedShow>(() => loadShow());
   const [thumbs, setThumbs] = useState<Record<number, string>>({});
@@ -58,7 +76,6 @@ export function Control() {
     startY: number;
     active: boolean;
   } | null>(null);
-  const suppressCellClick = useRef(false);
   const paletteDropTargetRef = useRef<number | null>(null);
   const [paletteDropTarget, setPaletteDropTarget] = useState<number | null>(
     null,
@@ -251,10 +268,6 @@ export function Control() {
   }, [playToIndex, clearSelected]);
 
   const onCellClick = (index: number) => {
-    if (suppressCellClick.current) {
-      suppressCellClick.current = false;
-      return;
-    }
     const cell = show.cells[index];
     if (cell.path) {
       void playToIndex(index);
@@ -307,9 +320,11 @@ export function Control() {
       setPaletteDropTarget(null);
       document.body.classList.remove("palette-dragging");
       window.getSelection()?.removeAllRanges();
-      if (drag?.active && targetIndex !== null && targetIndex !== drag.from) {
-        suppressCellClick.current = true;
-        relocateCell(drag.from, targetIndex);
+      if (drag?.active) {
+        absorbSpuriousPaletteClickAfterDrag();
+        if (targetIndex !== null && targetIndex !== drag.from) {
+          relocateCell(drag.from, targetIndex);
+        }
       }
     },
     [relocateCell],
