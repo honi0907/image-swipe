@@ -200,13 +200,18 @@
 }
 
 .cell-glyph-kind {
-  font-size: clamp(11px, 26cqh, 18px);
+  font-size: clamp(9px, 22cqh, 13px);
   color: #f0f4ff;
+  font-weight: 700;
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
 }
 
 .cell-glyph-dir {
-  font-size: clamp(13px, 32cqh, 22px);
+  font-size: clamp(15px, 36cqh, 24px);
   color: #7ec8ff;
+  font-weight: 800;
+  line-height: 1;
 }
 
 .cell-glyph-time {

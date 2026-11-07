@@ -47,7 +47,7 @@ jobs:
           releaseName: "画像スワイプ ${{ github.ref_name }}"
           releaseBody: |
             ## 画像スワイプ ${{ github.ref_name }}
-            - Windows インストーラ（NSIS）をダウンロードして実行してください。
+            - インストーラ: `image-swipe_*_x64-setup.exe`（NSIS）
             - アプリ起動時に新しいバージョンがあれば更新を案内します。
           releaseDraft: false
           prerelease: false
