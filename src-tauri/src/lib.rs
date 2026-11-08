@@ -123,13 +123,34 @@ fn move_output_to_monitor(app: AppHandle, index: usize) -> Result<(), String> {
     place_output_on_monitor(&app, index)
 }
 
+#[tauri::command]
+fn path_exists(path: String) -> bool {
+    std::path::Path::new(&path).is_file()
+}
+
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    std::fs::write(&path, contents).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![list_monitors, move_output_to_monitor])
+        .invoke_handler(tauri::generate_handler![
+            list_monitors,
+            move_output_to_monitor,
+            path_exists,
+            read_text_file,
+            write_text_file
+        ])
         .setup(|app| {
             let url = WebviewUrl::App("index.html".into());
             let _output = WebviewWindowBuilder::new(app, "output", url)

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PersistedShow, TransitionPayload } from "./types";
 import {
@@ -13,14 +14,27 @@ import {
   PALETTE_SIZE_OPTIONS,
   type PaletteSize,
 } from "./palette";
+import { FileMenuBar } from "./FileMenuBar";
+import { PaletteContextMenu } from "./PaletteContextMenu";
 import {
-  fillCellsFromIndex,
+  pickSaveProjectPath,
+  reportProjectError,
+  scanMissingPaths,
+  writeProjectFile,
+} from "./projectFile";
+import {
+  assignDroppedImages,
+  createEmptyShow,
   findNextSpaceIndex,
   getEffectiveSettings,
   loadShow,
   movePaletteCell,
   saveShow,
 } from "./show";
+import {
+  dragDropPositionToClient,
+  paletteIndexAtPoint,
+} from "./paletteDrop";
 import { thumbFromPath } from "./thumbs";
 import {
   emitStatic,
@@ -30,6 +44,8 @@ import {
   runStaticOnCanvas,
   runTransitionOnCanvas,
 } from "./transitionBridge";
+import { ColorAdjustPanel } from "./ColorAdjustPanel";
+import { redrawStaticIfCached } from "./draw";
 import { CellSwipeMeta } from "./CellSwipeMeta";
 import { ensureOverride as ensureOverrideUi, SettingsPanel } from "./SettingsPanel";
 import { UpdatePanel } from "./UpdatePanel";
@@ -80,9 +96,19 @@ export function Control() {
   const [paletteDropTarget, setPaletteDropTarget] = useState<number | null>(
     null,
   );
+  const [fileDropHover, setFileDropHover] = useState<number | null>(null);
   const [paletteDraggingFrom, setPaletteDraggingFrom] = useState<number | null>(
     null,
   );
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+  const [missingPaths, setMissingPaths] = useState<Record<number, boolean>>({});
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    index: number;
+  } | null>(null);
+  const missingPathsRef = useRef(missingPaths);
+  missingPathsRef.current = missingPaths;
 
   showRef.current = show;
 
@@ -108,6 +134,19 @@ export function Control() {
     void refreshThumbs(show);
   }, [show.cells.map((c) => c.path).join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const cellsPathKey = show.cells.map((c) => c.path ?? "").join("|");
+  useEffect(() => {
+    let cancelled = false;
+    void scanMissingPaths(show).then((m) => {
+      if (!cancelled) {
+        setMissingPaths(m);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [cellsPathKey, show]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const stage = canvas?.parentElement;
@@ -118,11 +157,58 @@ export function Control() {
       const s = showRef.current;
       const path =
         s.currentIndex >= 0 ? s.cells[s.currentIndex]?.path ?? null : null;
-      void runStaticOnCanvas(canvas, path);
+      void runStaticOnCanvas(canvas, path, s.colorAdjust);
     });
     ro.observe(stage);
     return () => ro.disconnect();
   }, []);
+
+  const previewColorRaf = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      cancelAnimationFrame(previewColorRaf.current);
+    };
+  }, []);
+
+  const handleColorLive = useCallback(
+    (colorAdjust: typeof show.colorAdjust) => {
+      showRef.current = { ...showRef.current, colorAdjust };
+      cancelAnimationFrame(previewColorRaf.current);
+      previewColorRaf.current = requestAnimationFrame(() => {
+        const s = showRef.current;
+        const path =
+          s.currentIndex >= 0 ? s.cells[s.currentIndex]?.path ?? null : null;
+        void emitStatic({ path, colorAdjust });
+        const canvas = canvasRef.current;
+        if (!canvas) {
+          return;
+        }
+        const painted = redrawStaticIfCached(
+          canvas,
+          path,
+          fileSrc,
+          colorAdjust,
+        );
+        if (!painted) {
+          void runStaticOnCanvas(canvas, path, colorAdjust);
+        }
+      });
+    },
+    [],
+  );
+
+  const handleColorCommit = useCallback(
+    (colorAdjust: typeof show.colorAdjust) => {
+      showRef.current = { ...showRef.current, colorAdjust };
+      const s = showRef.current;
+      const path =
+        s.currentIndex >= 0 ? s.cells[s.currentIndex]?.path ?? null : null;
+      void emitStatic({ path, colorAdjust });
+      persist({ ...s, colorAdjust });
+    },
+    [persist],
+  );
 
   useEffect(() => {
     void invoke<MonitorDto[]>("list_monitors").then((list) => {
@@ -150,6 +236,7 @@ export function Control() {
         fromPath,
         toPath: cell.path,
         settings,
+        colorAdjust: s.colorAdjust,
         startedAt,
       };
       await emitTransition(payload);
@@ -196,27 +283,40 @@ export function Control() {
           const s = showRef.current;
           const path =
             s.currentIndex >= 0 ? s.cells[s.currentIndex]?.path ?? null : null;
-          await emitStatic({ path });
+          await emitStatic({ path, colorAdjust: s.colorAdjust });
           const canvas = canvasRef.current;
           if (canvas) {
-            await runStaticOnCanvas(canvas, path);
+            await runStaticOnCanvas(canvas, path, s.colorAdjust);
           }
         }),
       );
     })();
 
-    const win = getCurrentWindow();
-    const dropUnsub = win.onDragDropEvent((event) => {
-      if (event.payload.type !== "drop") {
+    const webview = getCurrentWebview();
+    const dropUnsub = webview.onDragDropEvent(async (event) => {
+      const payload = event.payload;
+      if (payload.type === "leave") {
+        setFileDropHover(null);
         return;
       }
-      const paths = event.payload.paths.filter((p) => IMAGE_EXT.test(p));
+      if (payload.type === "enter" || payload.type === "over") {
+        const { x, y } = await dragDropPositionToClient(payload.position);
+        setFileDropHover(paletteIndexAtPoint(x, y));
+        return;
+      }
+      if (payload.type !== "drop") {
+        return;
+      }
+      setFileDropHover(null);
+      const paths = payload.paths.filter((p) => IMAGE_EXT.test(p));
       if (paths.length === 0) {
         return;
       }
-      const idx = showRef.current.selectedIndex;
-      const cells = fillCellsFromIndex(showRef.current.cells, idx, paths);
-      persist({ ...showRef.current, cells });
+      const { x, y } = await dragDropPositionToClient(payload.position);
+      const hit = paletteIndexAtPoint(x, y);
+      const idx = hit ?? showRef.current.selectedIndex;
+      const cells = assignDroppedImages(showRef.current.cells, idx, paths);
+      persist({ ...showRef.current, cells, selectedIndex: idx });
     });
 
     return () => {
@@ -225,55 +325,165 @@ export function Control() {
     };
   }, [persist]);
 
-  const clearSelected = useCallback(() => {
-    const s = showRef.current;
-    const i = s.selectedIndex;
-    const cells = s.cells.map((c, idx) =>
-      idx === i ? { path: null, override: null } : { ...c },
-    );
-    let currentIndex = s.currentIndex;
-    if (currentIndex === i) {
-      currentIndex = -1;
-      void emitStatic({ path: null });
-      const canvas = canvasRef.current;
-      if (canvas) {
-        void runStaticOnCanvas(canvas, null);
+  const clearCellAt = useCallback(
+    (index: number) => {
+      const s = showRef.current;
+      if (index < 0 || index >= s.cells.length) {
+        return;
       }
+      const cells = s.cells.map((c, idx) =>
+        idx === index ? { path: null, override: null } : { ...c },
+      );
+      let currentIndex = s.currentIndex;
+      if (currentIndex === index) {
+        currentIndex = -1;
+        void emitStatic({ path: null, colorAdjust: s.colorAdjust });
+        const canvas = canvasRef.current;
+        if (canvas) {
+          void runStaticOnCanvas(canvas, null, s.colorAdjust);
+        }
+      }
+      persist({ ...s, cells, currentIndex, selectedIndex: index });
+    },
+    [persist],
+  );
+
+  const clearSelected = useCallback(() => {
+    clearCellAt(showRef.current.selectedIndex);
+  }, [clearCellAt]);
+
+  const resetToNewShow = useCallback(() => {
+    const next = createEmptyShow(showRef.current.paletteSize);
+    setProjectPath(null);
+    persist(next);
+    void emitStatic({ path: null, colorAdjust: next.colorAdjust });
+    const canvas = canvasRef.current;
+    if (canvas) {
+      void runStaticOnCanvas(canvas, null, next.colorAdjust);
     }
-    persist({ ...s, cells, currentIndex });
   }, [persist]);
 
+  const handleNewProject = useCallback(async () => {
+    const ok = await confirm(
+      "現在のパレットと設定はすべて破棄されます。新規作成しますか？",
+      { title: "新規作成", kind: "warning" },
+    );
+    if (ok) {
+      resetToNewShow();
+    }
+  }, [resetToNewShow]);
+
+  const handleSaveAs = useCallback(async () => {
+    try {
+      const path = await pickSaveProjectPath(projectPath);
+      if (!path) {
+        return;
+      }
+      await writeProjectFile(path, showRef.current);
+      setProjectPath(path);
+    } catch (e) {
+      await reportProjectError(e);
+    }
+  }, [projectPath]);
+
+  const handleOverwriteSave = useCallback(async () => {
+    if (!projectPath) {
+      await handleSaveAs();
+      return;
+    }
+    try {
+      await writeProjectFile(projectPath, showRef.current);
+    } catch (e) {
+      await reportProjectError(e);
+    }
+  }, [projectPath, handleSaveAs]);
+
   useEffect(() => {
+    const blocksTypingShortcuts = (target: EventTarget | null) => {
+      if (
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) {
+        return true;
+      }
+      if (target instanceof HTMLInputElement) {
+        const { type } = target;
+        return type !== "checkbox" && type !== "radio";
+      }
+      return false;
+    };
+
+    /** テキスト入力中以外は Space でコマ送りを優先（右メニューの select / range 含む） */
+    const blocksSpaceForPalette = (target: EventTarget | null) => {
+      if (target instanceof HTMLTextAreaElement) {
+        return true;
+      }
+      if (target instanceof HTMLInputElement) {
+        const { type } = target;
+        return (
+          type === "text" ||
+          type === "search" ||
+          type === "password" ||
+          type === "email" ||
+          type === "url" ||
+          type === "tel" ||
+          type === "number"
+        );
+      }
+      return false;
+    };
+
     const onKey = (e: KeyboardEvent) => {
       if (updateUiOpen.current) {
         return;
       }
-      if (e.code === "Delete") {
+      if (e.code === "Delete" || e.code === "Backspace") {
+        if (blocksTypingShortcuts(e.target)) {
+          return;
+        }
+        e.preventDefault();
         clearSelected();
+        return;
+      }
+      if (e.ctrlKey && e.code === "KeyS") {
+        if (blocksTypingShortcuts(e.target)) {
+          return;
+        }
+        e.preventDefault();
+        void handleOverwriteSave();
         return;
       }
       if (e.code !== "Space" || e.repeat) {
         return;
       }
+      if (blocksSpaceForPalette(e.target)) {
+        return;
+      }
       e.preventDefault();
       const s = showRef.current;
       const from = s.currentIndex >= 0 ? s.currentIndex : -1;
-      const next = findNextSpaceIndex(s, from);
+      const next = findNextSpaceIndex(s, from, missingPathsRef.current);
       if (next !== null) {
         void playToIndex(next);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [playToIndex, clearSelected]);
+  }, [playToIndex, clearSelected, handleOverwriteSave]);
 
   const onCellClick = (index: number) => {
     const cell = show.cells[index];
-    if (cell.path) {
+    if (cell.path && !missingPaths[index]) {
       void playToIndex(index);
     } else {
       persist({ ...show, selectedIndex: index });
     }
+  };
+
+  const onCellContextMenu = (index: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    persist({ ...show, selectedIndex: index });
+    setContextMenu({ x: e.clientX, y: e.clientY, index });
   };
 
   const onCellPointerDown = (index: number, e: React.PointerEvent) => {
@@ -346,10 +556,20 @@ export function Control() {
       }
       if (drag.active) {
         e.preventDefault();
+        const hit = paletteIndexAtPoint(e.clientX, e.clientY);
+        paletteDropTargetRef.current = hit;
+        setPaletteDropTarget(hit);
       }
     };
-    const onUp = () => {
-      finishPaletteDrag(paletteDropTargetRef.current);
+    const onUp = (e: PointerEvent) => {
+      let target = paletteDropTargetRef.current;
+      if (paletteDrag.current?.active) {
+        const hit = paletteIndexAtPoint(e.clientX, e.clientY);
+        if (hit !== null) {
+          target = hit;
+        }
+      }
+      finishPaletteDrag(target);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -390,10 +610,10 @@ export function Control() {
     let selectedIndex = show.selectedIndex;
     if (currentIndex >= nextSize) {
       currentIndex = -1;
-      void emitStatic({ path: null });
+      void emitStatic({ path: null, colorAdjust: show.colorAdjust });
       const canvas = canvasRef.current;
       if (canvas) {
-        void runStaticOnCanvas(canvas, null);
+        void runStaticOnCanvas(canvas, null, show.colorAdjust);
       }
     }
     if (selectedIndex >= nextSize) {
@@ -410,11 +630,13 @@ export function Control() {
 
   return (
     <div className="control-root">
-      <header className="control-header">
-        <h1>画像スワイプ</h1>
-        <p className="control-lead">
-          コマへ画像をドロップ · クリックまたは Space で出力 · 方向は「今の画像が出ていく向き」
-        </p>
+      <header className="control-menubar-wrap">
+        <FileMenuBar
+          projectPath={projectPath}
+          onNew={() => void handleNewProject()}
+          onSaveAs={() => void handleSaveAs()}
+          onOverwriteSave={() => void handleOverwriteSave()}
+        />
       </header>
 
       <div className="control-main">
@@ -449,23 +671,43 @@ export function Control() {
               if (paletteDraggingFrom === index) {
                 classNames.push("dragging");
               }
-              if (paletteDropTarget === index && paletteDraggingFrom !== null) {
+              if (
+                (paletteDropTarget === index &&
+                  paletteDraggingFrom !== null) ||
+                fileDropHover === index
+              ) {
                 classNames.push("drop-target");
               }
-              if (cell.path) {
+              const missing = cell.path && missingPaths[index];
+              if (cell.path && !missing) {
                 classNames.push("draggable");
+              }
+              if (missing) {
+                classNames.push("missing-media");
               }
               return (
                 <div
                   key={index}
+                  data-palette-index={index}
                   className={classNames.join(" ")}
+                  title={
+                    missing && cell.path
+                      ? `素材が見つかりません: ${cell.path}`
+                      : undefined
+                  }
                   onClick={() => onCellClick(index)}
+                  onContextMenu={(e) => onCellContextMenu(index, e)}
                   onPointerDown={(e) => onCellPointerDown(index, e)}
                   onPointerEnter={() => onCellPointerEnter(index)}
                 >
                   <span className="cell-num">{index + 1}</span>
                   <div className="cell-thumb-area">
-                    {cell.path ? (
+                    {missing ? (
+                      <span className="cell-missing">
+                        素材なし
+                        <span className="cell-missing-sub">再ドロップで上書き</span>
+                      </span>
+                    ) : cell.path ? (
                       <img
                         className="cell-thumb"
                         src={thumbs[index] ?? fileSrc(cell.path)}
@@ -482,7 +724,7 @@ export function Control() {
             })}
           </div>
           <button type="button" className="btn-ghost" onClick={clearSelected}>
-            選択コマを空にする (Delete)
+            選択コマを削除 (Delete / Backspace)
           </button>
           </div>
         </div>
@@ -527,8 +769,23 @@ export function Control() {
               persist({ ...show, cells });
             }}
           />
+          <ColorAdjustPanel
+            value={show.colorAdjust}
+            onLiveChange={handleColorLive}
+            onCommit={handleColorCommit}
+          />
         </aside>
       </div>
+
+      {contextMenu && (
+        <PaletteContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          cellIndex={contextMenu.index}
+          onDelete={clearCellAt}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
 
       <footer className="control-footer">
         <label className="footer-check">
@@ -538,6 +795,11 @@ export function Control() {
             onChange={(e) =>
               persist({ ...show, skipEmptyOnSpace: e.target.checked })
             }
+            onKeyDown={(e) => {
+              if (e.code === "Space" || e.code === "Enter") {
+                e.preventDefault();
+              }
+            }}
           />
           Spaceで空コマをスキップ
         </label>

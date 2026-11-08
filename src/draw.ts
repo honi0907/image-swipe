@@ -1,4 +1,15 @@
-import type { Direction, Easing, SwipeKind, SwipeSettings } from "./types";
+import {
+  defaultColorAdjust,
+  isDefaultColorAdjust,
+  withColorAdjust,
+} from "./colorAdjust";
+import type {
+  ColorAdjustSettings,
+  Direction,
+  Easing,
+  SwipeKind,
+  SwipeSettings,
+} from "./types";
 
 export function easeT(t: number, easing: Easing): number {
   const x = Math.min(1, Math.max(0, t));
@@ -18,13 +29,68 @@ export function easeT(t: number, easing: Easing): number {
   }
 }
 
+const imageBySrc = new Map<string, HTMLImageElement>();
+
 export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
+    const cached = imageBySrc.get(src);
+    if (cached && cached.complete && cached.naturalWidth > 0) {
+      resolve(cached);
+      return;
+    }
     const img = new Image();
-    img.onload = () => resolve(img);
+    img.onload = () => {
+      imageBySrc.set(src, img);
+      resolve(img);
+    };
     img.onerror = () => reject(new Error(`画像を読み込めません: ${src}`));
     img.src = src;
   });
+}
+
+function paintStatic(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  img: HTMLImageElement | null,
+  colorAdjust: ColorAdjustSettings,
+) {
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, w, h);
+  if (!img) {
+    return;
+  }
+  drawLetterbox(ctx, img, w, h, 0, 0, colorAdjust);
+}
+
+/** 画像キャッシュがあれば再読み込みせず色だけ更新（スライダー操作中のちらつき防止） */
+export function redrawStaticIfCached(
+  canvas: HTMLCanvasElement,
+  path: string | null,
+  src: (path: string) => string,
+  colorAdjust: ColorAdjustSettings,
+): boolean {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return false;
+  }
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  if (!path) {
+    paintStatic(ctx, w, h, null, colorAdjust);
+    return true;
+  }
+  const key = src(path);
+  const cached = imageBySrc.get(key);
+  if (!cached || !cached.complete || cached.naturalWidth <= 0) {
+    return false;
+  }
+  paintStatic(ctx, w, h, cached, colorAdjust);
+  return true;
 }
 
 function fitRect(
@@ -53,9 +119,17 @@ export function drawLetterbox(
   dh: number,
   offsetX = 0,
   offsetY = 0,
+  colorAdjust: ColorAdjustSettings = defaultColorAdjust(),
 ) {
   const r = fitRect(img, 0, 0, dw, dh);
-  ctx.drawImage(img, r.x + offsetX, r.y + offsetY, r.w, r.h);
+  const paint = () => {
+    ctx.drawImage(img, r.x + offsetX, r.y + offsetY, r.w, r.h);
+  };
+  if (isDefaultColorAdjust(colorAdjust)) {
+    paint();
+  } else {
+    withColorAdjust(ctx, colorAdjust, paint);
+  }
 }
 
 function dirSign(d: Direction): { x: number; y: number } {
@@ -165,6 +239,7 @@ function drawFrameToBlack(
   fromImg: HTMLImageElement | null,
   progress: number,
   settings: SwipeSettings,
+  colorAdjust: ColorAdjustSettings,
 ) {
   const kind: SwipeKind = settings.kind;
   const s = dirSign(settings.direction);
@@ -175,7 +250,7 @@ function drawFrameToBlack(
 
   if (kind === "fade") {
     ctx.globalAlpha = 1 - progress;
-    drawLetterbox(ctx, fromImg, w, h);
+    drawLetterbox(ctx, fromImg, w, h, 0, 0, colorAdjust);
     ctx.globalAlpha = 1;
     return;
   }
@@ -183,14 +258,14 @@ function drawFrameToBlack(
   if (kind === "slide" || kind === "push") {
     const ox = s.x * progress * w;
     const oy = s.y * progress * h;
-    drawLetterbox(ctx, fromImg, w, h, ox, oy);
+    drawLetterbox(ctx, fromImg, w, h, ox, oy, colorAdjust);
     return;
   }
 
   if (kind === "wipe") {
     ctx.save();
     clipFromWipe(ctx, w, h, 1 - progress, settings.direction);
-    drawLetterbox(ctx, fromImg, w, h);
+    drawLetterbox(ctx, fromImg, w, h, 0, 0, colorAdjust);
     ctx.restore();
   }
 }
@@ -203,6 +278,7 @@ export function drawFrame(
   toImg: HTMLImageElement | null,
   progress: number,
   settings: SwipeSettings,
+  colorAdjust: ColorAdjustSettings,
 ) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, w, h);
@@ -213,41 +289,41 @@ export function drawFrame(
     if (kind === "cut") {
       return;
     }
-    drawFrameToBlack(ctx, w, h, fromImg, progress, settings);
+    drawFrameToBlack(ctx, w, h, fromImg, progress, settings, colorAdjust);
     return;
   }
 
   const s = dirSign(settings.direction);
 
   if (kind === "cut") {
-    drawLetterbox(ctx, toImg, w, h);
+    drawLetterbox(ctx, toImg, w, h, 0, 0, colorAdjust);
     return;
   }
 
   if (kind === "fade") {
     if (fromImg && progress < 1) {
       ctx.globalAlpha = 1 - progress;
-      drawLetterbox(ctx, fromImg, w, h);
+      drawLetterbox(ctx, fromImg, w, h, 0, 0, colorAdjust);
     }
     ctx.globalAlpha = fromImg ? progress : 1;
-    drawLetterbox(ctx, toImg, w, h);
+    drawLetterbox(ctx, toImg, w, h, 0, 0, colorAdjust);
     ctx.globalAlpha = 1;
     return;
   }
 
   if (fromImg) {
     if (kind === "slide") {
-      drawLetterbox(ctx, fromImg, w, h);
+      drawLetterbox(ctx, fromImg, w, h, 0, 0, colorAdjust);
     } else if (kind === "push") {
       const ox = s.x * progress * w;
       const oy = s.y * progress * h;
-      drawLetterbox(ctx, fromImg, w, h, ox, oy);
+      drawLetterbox(ctx, fromImg, w, h, ox, oy, colorAdjust);
     } else if (kind === "wipe") {
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 0, w, h);
       ctx.clip();
-      drawLetterbox(ctx, fromImg, w, h);
+      drawLetterbox(ctx, fromImg, w, h, 0, 0, colorAdjust);
       ctx.restore();
     }
   }
@@ -255,7 +331,7 @@ export function drawFrame(
   ctx.save();
   if (kind === "wipe") {
     clipWipe(ctx, w, h, progress, settings.direction);
-    drawLetterbox(ctx, toImg, w, h);
+    drawLetterbox(ctx, toImg, w, h, 0, 0, colorAdjust);
     ctx.restore();
     if (settings.edgeBlur > 0) {
       drawWipeSoftEdge(ctx, w, h, progress, settings.direction, settings.edgeBlur);
@@ -266,11 +342,11 @@ export function drawFrame(
   if (kind === "slide") {
     const toOx = -s.x * (1 - progress) * w;
     const toOy = -s.y * (1 - progress) * h;
-    drawLetterbox(ctx, toImg, w, h, toOx, toOy);
+    drawLetterbox(ctx, toImg, w, h, toOx, toOy, colorAdjust);
   } else if (kind === "push") {
     const toOx = s.x * (progress - 1) * w;
     const toOy = s.y * (progress - 1) * h;
-    drawLetterbox(ctx, toImg, w, h, toOx, toOy);
+    drawLetterbox(ctx, toImg, w, h, toOx, toOy, colorAdjust);
   }
   ctx.restore();
 }
@@ -284,6 +360,7 @@ export async function playTransition(
   settings: SwipeSettings,
   startedAt: number,
   src: (path: string) => string,
+  colorAdjust: ColorAdjustSettings = defaultColorAdjust(),
 ): Promise<void> {
   cancelAnimationFrame(activeRaf);
   const ctx = canvas.getContext("2d");
@@ -302,7 +379,7 @@ export async function playTransition(
   const toImg = toPath ? await loadImage(src(toPath)) : null;
 
   if (settings.kind === "cut") {
-    drawFrame(ctx, w, h, fromImg, toImg, 1, settings);
+    drawFrame(ctx, w, h, fromImg, toImg, 1, settings, colorAdjust);
     return;
   }
 
@@ -312,7 +389,7 @@ export async function playTransition(
     const tick = () => {
       const raw = (Date.now() - startedAt) / durationMs;
       const t = easeT(Math.min(1, raw), settings.easing);
-      drawFrame(ctx, w, h, fromImg, toImg, t, settings);
+      drawFrame(ctx, w, h, fromImg, toImg, t, settings, colorAdjust);
       if (raw >= 1) {
         resolve();
         return;
@@ -327,6 +404,7 @@ export async function drawStatic(
   canvas: HTMLCanvasElement,
   path: string | null,
   src: (path: string) => string,
+  colorAdjust: ColorAdjustSettings = defaultColorAdjust(),
 ): Promise<void> {
   cancelAnimationFrame(activeRaf);
   const ctx = canvas.getContext("2d");
@@ -339,11 +417,6 @@ export async function drawStatic(
     canvas.width = w;
     canvas.height = h;
   }
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, w, h);
-  if (!path) {
-    return;
-  }
-  const img = await loadImage(src(path));
-  drawLetterbox(ctx, img, w, h);
+  const img = path ? await loadImage(src(path)) : null;
+  paintStatic(ctx, w, h, img, colorAdjust);
 }

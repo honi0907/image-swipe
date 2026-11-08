@@ -1,4 +1,5 @@
 import type { CellOverride, Direction, Easing, SwipeKind, SwipeSettings } from "./types";
+import { RangeField } from "./RangeField";
 
 const KIND_LABELS: Record<SwipeKind, string> = {
   cut: "カット（瞬間切替）",
@@ -112,23 +113,17 @@ export function SettingsPanel({
           </select>
         </label>
 
-        <label>
-          速度（秒）
-          <input
-            type="range"
-            min={0.15}
-            max={2.5}
-            step={0.05}
-            value={settings.durationSec}
-            onChange={(e) =>
-              onChange({ ...settings, durationSec: Number(e.target.value) })
-            }
-            disabled={noMotion || (overrideMode !== undefined && !overrideMode.enabled)}
-          />
-          <span className="range-val">
-            {cut ? "—" : settings.durationSec.toFixed(2)}
-          </span>
-        </label>
+        <RangeField
+          label="速度（秒）"
+          value={settings.durationSec}
+          min={0.15}
+          max={2.5}
+          step={0.05}
+          accent="#4d9aff"
+          disabled={noMotion || (overrideMode !== undefined && !overrideMode.enabled)}
+          format={(v) => (cut ? "—" : v.toFixed(2))}
+          onChange={(durationSec) => onChange({ ...settings, durationSec })}
+        />
 
         <label>
           イージング
@@ -147,25 +142,21 @@ export function SettingsPanel({
           </select>
         </label>
 
-        <label>
-          境界のぼかし（%）
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            value={settings.edgeBlur}
-            onChange={(e) =>
-              onChange({ ...settings, edgeBlur: Number(e.target.value) })
-            }
-            disabled={
-              fade ||
-              settings.kind !== "wipe" ||
-              (overrideMode !== undefined && !overrideMode.enabled)
-            }
-          />
-          <span className="range-val">{settings.edgeBlur}</span>
-        </label>
+        <RangeField
+          label="境界のぼかし（%）"
+          value={settings.edgeBlur}
+          min={0}
+          max={100}
+          step={1}
+          unit="%"
+          accent="#b58cff"
+          disabled={
+            fade ||
+            settings.kind !== "wipe" ||
+            (overrideMode !== undefined && !overrideMode.enabled)
+          }
+          onChange={(edgeBlur) => onChange({ ...settings, edgeBlur })}
+        />
       </div>
     </section>
   );

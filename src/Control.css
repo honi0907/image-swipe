@@ -8,29 +8,93 @@
   font-family: "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif;
 }
 
-.control-header {
+.control-menubar-wrap {
   flex-shrink: 0;
-  padding: 0.45rem 1rem;
+  display: flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0 0.35rem;
   border-bottom: 1px solid #2a2e38;
+  background: #181b22;
 }
 
-.control-header h1 {
-  margin: 0;
-  font-size: 1.05rem;
-  font-weight: 600;
+.menu-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
 }
 
-.control-lead {
-  margin: 0.2rem 0 0;
-  font-size: 0.78rem;
-  color: #9aa3b5;
+.menu-root {
+  position: relative;
+}
+
+.menu-top {
+  background: transparent;
+  border: none;
+  color: #e8eaef;
+  font-size: 0.82rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.menu-top:hover,
+.menu-top.active {
+  background: #2a3140;
+}
+
+.menu-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 50;
+  min-width: 11rem;
+  margin-top: 2px;
+  padding: 0.25rem 0;
+  background: #1f2430;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+.menu-dropdown button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #e8eaef;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.85rem;
+  cursor: pointer;
+}
+
+.menu-dropdown button:hover:not(:disabled) {
+  background: #2f6fed;
+}
+
+.menu-dropdown button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.menu-doc-name {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: #8b93a7;
+  padding-right: 0.5rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
 }
 
 .control-main {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 1fr minmax(200px, 260px);
+  grid-template-columns: 1fr minmax(220px, 280px);
   gap: 0.6rem;
   padding: 0.45rem 0.85rem 0.5rem;
   overflow: hidden;
@@ -244,6 +308,63 @@
   box-shadow: inset 0 0 0 2px #3dd68c;
 }
 
+.palette-cell.missing-media {
+  background: #2a1418;
+  border-color: #c94a4a;
+  box-shadow: inset 0 0 0 1px rgba(255, 80, 80, 0.45);
+}
+
+.palette-cell.missing-media.selected {
+  outline-color: #ff7070;
+}
+
+.cell-missing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #ff8a8a;
+  text-align: center;
+  line-height: 1.2;
+  padding: 0 3px;
+}
+
+.cell-missing-sub {
+  font-size: 0.52rem;
+  font-weight: 500;
+  color: #e8a0a0;
+  opacity: 0.9;
+}
+
+.palette-context-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 9rem;
+  padding: 0.25rem 0;
+  background: #1f2430;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+
+.palette-context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: #e8eaef;
+  font-size: 0.8rem;
+  padding: 0.45rem 0.85rem;
+  cursor: pointer;
+}
+
+.palette-context-menu button:hover {
+  background: #c94a4a;
+}
+
 .palette-cell.skip-empty {
   opacity: 0.42;
   background: #12141a;
@@ -374,7 +495,139 @@
 
 .range-val {
   font-size: 0.72rem;
-  color: #9aa3b5;
+  color: #c5d4ef;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.color-adjust-panel {
+  flex-shrink: 0;
+  background: #1a1e26;
+  border: 1px solid #2a2e38;
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem 0.5rem;
+}
+
+.color-adjust-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.color-adjust-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.color-adjust-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.68rem;
+  color: #8b93a7;
+  line-height: 1.3;
+}
+
+.btn-compact {
+  margin-left: auto;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.68rem;
+}
+
+.color-adjust-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.32rem;
+}
+
+.range-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.range-field-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.range-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+
+.range-field-label {
+  font-size: 0.7rem;
+  color: #b8bfcc;
+  white-space: nowrap;
+}
+
+.range-cool {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--range-accent, #4d9aff) 0%,
+    color-mix(in srgb, var(--range-accent, #4d9aff) 72%, #1a1e26) var(--range-pct),
+    #252b38 var(--range-pct),
+    #252b38 100%
+  );
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+
+.range-cool:disabled {
+  cursor: default;
+}
+
+.range-cool::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: none;
+  background: radial-gradient(circle at 35% 30%, #ffffff, #d8deeb 55%, #aeb8cc);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--range-accent, #4d9aff) 75%, #000),
+    0 0 14px color-mix(in srgb, var(--range-accent, #4d9aff) 45%, transparent),
+    0 2px 4px rgba(0, 0, 0, 0.45);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.range-cool:not(:disabled):hover::-webkit-slider-thumb {
+  transform: scale(1.08);
+}
+
+.range-cool::-moz-range-track {
+  height: 7px;
+  border-radius: 999px;
+  background: #252b38;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.range-cool::-moz-range-progress {
+  height: 7px;
+  border-radius: 999px 0 0 999px;
+  background: color-mix(in srgb, var(--range-accent, #4d9aff) 72%, #1a1e26);
+}
+
+.range-cool::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border: none;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffffff, #d8deeb 55%, #aeb8cc);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--range-accent, #4d9aff) 75%, #000),
+    0 0 14px color-mix(in srgb, var(--range-accent, #4d9aff) 45%, transparent);
 }
 
 .override-toggle {

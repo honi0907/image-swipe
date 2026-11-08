@@ -3,6 +3,7 @@ import {
   type PaletteSize,
   PALETTE_COLS,
 } from "./palette";
+import { mergeColorAdjust } from "./colorAdjust";
 import type { Cell, CellOverride, PersistedShow, SwipeSettings } from "./types";
 
 const STORAGE_KEY = "swipe-show-v2";
@@ -23,6 +24,7 @@ export function createEmptyShow(
     paletteSize,
     cells: normalizeCells([], paletteSize),
     globalSettings: defaultSwipeSettings(),
+    colorAdjust: mergeColorAdjust(),
     skipEmptyOnSpace: false,
     currentIndex: -1,
     selectedIndex: 0,
@@ -70,10 +72,11 @@ export function movePaletteCell(
 export function findNextSpaceIndex(
   show: PersistedShow,
   fromIndex: number,
+  blocked: Record<number, boolean> = {},
 ): number | null {
   const n = show.cells.length;
   if (show.skipEmptyOnSpace) {
-    return findNextImageIndex(show, fromIndex);
+    return findNextImageIndex(show, fromIndex, blocked);
   }
   if (fromIndex < 0) {
     return 0;
@@ -102,11 +105,12 @@ export function getEffectiveSettings(
 export function findNextImageIndex(
   show: PersistedShow,
   fromIndex: number,
+  blocked: Record<number, boolean> = {},
 ): number | null {
   const n = show.cells.length;
   for (let step = 1; step <= n; step++) {
     const i = (fromIndex + step) % n;
-    if (show.cells[i]?.path) {
+    if (show.cells[i]?.path && !blocked[i]) {
       return i;
     }
   }
@@ -133,7 +137,9 @@ export function fillCellsFromIndex(
   return next;
 }
 
-function parsePersisted(raw: string): PersistedShow {
+export const PROJECT_FORMAT_VERSION = 1 as const;
+
+export function parsePersisted(raw: string): PersistedShow {
     const parsed = JSON.parse(raw) as PersistedShow;
     const paletteSize = parsed.paletteSize ?? 50;
     if (!parsed.cells?.length) {
@@ -156,6 +162,7 @@ function parsePersisted(raw: string): PersistedShow {
       currentIndex,
       selectedIndex,
       globalSettings: { ...defaultSwipeSettings(), ...parsed.globalSettings },
+      colorAdjust: mergeColorAdjust(parsed.colorAdjust),
       skipEmptyOnSpace: parsed.skipEmptyOnSpace ?? false,
     };
 }
@@ -179,6 +186,44 @@ export function loadShow(): PersistedShow {
 
 export function saveShow(show: PersistedShow): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(show));
+}
+
+export function showToProjectJson(show: PersistedShow): string {
+  return JSON.stringify(
+    { formatVersion: PROJECT_FORMAT_VERSION, ...show },
+    null,
+    2,
+  );
+}
+
+export function parseProjectJson(raw: string): PersistedShow {
+  const parsed = JSON.parse(raw) as PersistedShow & {
+    formatVersion?: number;
+  };
+  if (parsed.formatVersion !== undefined && parsed.formatVersion > PROJECT_FORMAT_VERSION) {
+    throw new Error("このファイルは新しすぎるバージョンです");
+  }
+  return parsePersisted(JSON.stringify(parsed));
+}
+
+export function assignDroppedImages(
+  cells: Cell[],
+  startIndex: number,
+  paths: string[],
+): Cell[] {
+  if (paths.length === 0) {
+    return cells.map(cloneCell);
+  }
+  const next = cells.map(cloneCell);
+  let slot = startIndex;
+  for (const path of paths) {
+    if (slot >= next.length) {
+      break;
+    }
+    next[slot] = { ...next[slot], path };
+    slot++;
+  }
+  return next;
 }
 
 export function cloneOverride(o: CellOverride | null): CellOverride | null {

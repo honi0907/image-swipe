@@ -1,5 +1,6 @@
 import { emit, listen } from "@tauri-apps/api/event";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { defaultColorAdjust } from "./colorAdjust";
 import type { StaticShowPayload, TransitionPayload } from "./types";
 import { drawStatic, playTransition } from "./draw";
 
@@ -50,12 +51,14 @@ export async function runTransitionOnCanvas(
     payload.settings,
     payload.startedAt,
     fileSrc,
+    payload.colorAdjust ?? defaultColorAdjust(),
   );
 }
 
 export async function runStaticOnCanvas(
   canvas: HTMLCanvasElement,
   path: string | null,
+  colorAdjust = defaultColorAdjust(),
 ): Promise<void> {
-  await drawStatic(canvas, path, fileSrc);
+  await drawStatic(canvas, path, fileSrc, colorAdjust);
 }
