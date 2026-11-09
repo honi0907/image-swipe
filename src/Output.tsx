@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
 import { defaultColorAdjust } from "./colorAdjust";
+import { isVideoPath } from "./media";
 import { redrawStaticIfCached } from "./draw";
 import {
   fileSrc,
@@ -51,9 +52,10 @@ export function Output() {
         lastPath.current,
         fileSrc,
         lastColor.current,
+        true,
       );
       if (!painted) {
-        void runStaticOnCanvas(canvas, lastPath.current, lastColor.current);
+        void runStaticOnCanvas(canvas, lastPath.current, lastColor.current, true);
       }
     };
     window.addEventListener("resize", onResize);
@@ -71,8 +73,16 @@ export function Output() {
           enqueue(async () => {
             lastColor.current =
               payload.colorAdjust ?? defaultColorAdjust();
-            await runTransitionOnCanvas(canvas, payload);
+            await runTransitionOnCanvas(canvas, payload, true);
             lastPath.current = payload.toPath;
+            if (payload.toPath && isVideoPath(payload.toPath)) {
+              await runStaticOnCanvas(
+                canvas,
+                payload.toPath,
+                lastColor.current,
+                true,
+              );
+            }
           });
         },
       );
@@ -92,9 +102,9 @@ export function Output() {
             const path = payload.path;
             const color = lastColor.current;
             enqueue(async () => {
-              const painted = redrawStaticIfCached(canvas, path, fileSrc, color);
+              const painted = redrawStaticIfCached(canvas, path, fileSrc, color, true);
               if (!painted) {
-                await runStaticOnCanvas(canvas, path, color);
+                await runStaticOnCanvas(canvas, path, color, true);
               }
             });
           });

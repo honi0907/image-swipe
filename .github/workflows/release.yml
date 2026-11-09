@@ -35,6 +35,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Sync docs/remote.html
+        run: node scripts/sync-remote-docs.mjs
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -53,3 +56,8 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+
+      - name: Attach remote.html for smartphones
+        run: gh release upload "${{ github.ref_name }}" public/remote.html --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

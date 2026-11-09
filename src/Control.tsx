@@ -35,6 +35,8 @@ import {
   dragDropPositionToClient,
   paletteIndexAtPoint,
 } from "./paletteDrop";
+import { isVideoPath, MEDIA_EXT } from "./media";
+import { PaletteVideoThumb } from "./PaletteVideoThumb";
 import { thumbFromPath } from "./thumbs";
 import {
   emitStatic,
@@ -50,14 +52,16 @@ import { CellSwipeMeta } from "./CellSwipeMeta";
 import { ensureOverride as ensureOverrideUi, SettingsPanel } from "./SettingsPanel";
 import { UpdatePanel } from "./UpdatePanel";
 import { updateUiOpen } from "./updater";
+import {
+  REMOTE_CUE_EVENT,
+  type RemoteCuePayload,
+} from "./remoteCue";
 import "./Control.css";
 
 type MonitorDto = {
   index: number;
   name: string;
 };
-
-const IMAGE_EXT = /\.(jpe?g|png|webp|gif|bmp)$/i;
 
 /** pointerup 直後に合成されるクリックを1回だけ捨てる（次の意図的なクリックはそのまま通す） */
 function absorbSpuriousPaletteClickAfterDrag(): void {
@@ -117,24 +121,44 @@ export function Control() {
     saveShow(next);
   }, []);
 
+  const cellsPathKey = show.cells.map((c) => c.path ?? "").join("|");
+
   const refreshThumbs = useCallback(async (state: PersistedShow) => {
-    const next: Record<number, string> = {};
-    await Promise.all(
-      state.cells.map(async (cell, i) => {
-        if (!cell.path) {
-          return;
-        }
-        next[i] = await thumbFromPath(cell.path);
-      }),
-    );
-    setThumbs(next);
+    for (let i = 0; i < state.cells.length; i++) {
+      const cell = state.cells[i];
+      if (!cell?.path) {
+        setThumbs((prev) => {
+          if (!(i in prev)) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[i];
+          return next;
+        });
+        continue;
+      }
+      const pathAtStart = cell.path;
+      try {
+        const url = await thumbFromPath(cell.path);
+        setThumbs((prev) => {
+          if (showRef.current.cells[i]?.path !== pathAtStart) {
+            return prev;
+          }
+          return { ...prev, [i]: url };
+        });
+      } catch {
+        setThumbs((prev) => ({ ...prev, [i]: fileSrc(pathAtStart) }));
+      }
+    }
   }, []);
 
   useEffect(() => {
-    void refreshThumbs(show);
-  }, [show.cells.map((c) => c.path).join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
+    const timer = window.setTimeout(() => {
+      void refreshThumbs(showRef.current);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [cellsPathKey, refreshThumbs]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const cellsPathKey = show.cells.map((c) => c.path ?? "").join("|");
   useEffect(() => {
     let cancelled = false;
     void scanMissingPaths(show).then((m) => {
@@ -228,6 +252,7 @@ export function Control() {
       if (!cell) {
         return;
       }
+      persist({ ...s, selectedIndex: index });
       const fromPath =
         s.currentIndex >= 0 ? s.cells[s.currentIndex]?.path ?? null : null;
       const settings = getEffectiveSettings(cell, s.globalSettings);
@@ -239,12 +264,19 @@ export function Control() {
         colorAdjust: s.colorAdjust,
         startedAt,
       };
-      await emitTransition(payload);
-      const canvas = canvasRef.current;
-      if (canvas) {
-        await runTransitionOnCanvas(canvas, payload);
+      try {
+        await emitTransition(payload);
+        const canvas = canvasRef.current;
+        if (canvas) {
+          await runTransitionOnCanvas(canvas, payload);
+          if (cell.path && isVideoPath(cell.path)) {
+            await runStaticOnCanvas(canvas, cell.path, s.colorAdjust);
+          }
+        }
+        persist({ ...showRef.current, currentIndex: index, selectedIndex: index });
+      } catch (error) {
+        console.error("playToIndex failed", error);
       }
-      persist({ ...s, currentIndex: index, selectedIndex: index });
     },
     [persist],
   );
@@ -274,6 +306,63 @@ export function Control() {
     },
     [drainQueue],
   );
+
+  const triggerSelectAt = useCallback(
+    (index: number) => {
+      const s = showRef.current;
+      if (index < 0 || index >= s.cells.length) {
+        return;
+      }
+      persist({ ...s, selectedIndex: index });
+    },
+    [persist],
+  );
+
+  const triggerCueAt = useCallback(
+    (index: number) => {
+      const s = showRef.current;
+      const cell = s.cells[index];
+      if (cell?.path && !missingPathsRef.current[index]) {
+        playToIndex(index);
+      } else {
+        triggerSelectAt(index);
+      }
+    },
+    [playToIndex, triggerSelectAt],
+  );
+
+  const triggerNextCue = useCallback(() => {
+    const s = showRef.current;
+    const from = s.currentIndex >= 0 ? s.currentIndex : -1;
+    const next = findNextSpaceIndex(s, from, missingPathsRef.current);
+    if (next !== null) {
+      playToIndex(next);
+    }
+  }, [playToIndex]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<RemoteCuePayload>(REMOTE_CUE_EVENT, (event) => {
+      const payload = event.payload;
+      if (payload.kind === "next") {
+        triggerNextCue();
+        return;
+      }
+      if (payload.index === undefined) {
+        return;
+      }
+      if (payload.kind === "goto") {
+        triggerCueAt(payload.index);
+      } else if (payload.kind === "select") {
+        triggerSelectAt(payload.index);
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
+  }, [triggerCueAt, triggerNextCue, triggerSelectAt]);
 
   useEffect(() => {
     const unsubs: Array<() => void> = [];
@@ -308,7 +397,7 @@ export function Control() {
         return;
       }
       setFileDropHover(null);
-      const paths = payload.paths.filter((p) => IMAGE_EXT.test(p));
+      const paths = payload.paths.filter((p) => MEDIA_EXT.test(p));
       if (paths.length === 0) {
         return;
       }
@@ -460,24 +549,14 @@ export function Control() {
         return;
       }
       e.preventDefault();
-      const s = showRef.current;
-      const from = s.currentIndex >= 0 ? s.currentIndex : -1;
-      const next = findNextSpaceIndex(s, from, missingPathsRef.current);
-      if (next !== null) {
-        void playToIndex(next);
-      }
+      triggerNextCue();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [playToIndex, clearSelected, handleOverwriteSave]);
+  }, [triggerNextCue, clearSelected, handleOverwriteSave]);
 
   const onCellClick = (index: number) => {
-    const cell = show.cells[index];
-    if (cell.path && !missingPaths[index]) {
-      void playToIndex(index);
-    } else {
-      persist({ ...show, selectedIndex: index });
-    }
+    triggerCueAt(index);
   };
 
   const onCellContextMenu = (index: number, e: React.MouseEvent) => {
@@ -708,12 +787,25 @@ export function Control() {
                         <span className="cell-missing-sub">再ドロップで上書き</span>
                       </span>
                     ) : cell.path ? (
-                      <img
-                        className="cell-thumb"
-                        src={thumbs[index] ?? fileSrc(cell.path)}
-                        alt=""
-                        draggable={false}
-                      />
+                      isVideoPath(cell.path) ? (
+                        <>
+                          <PaletteVideoThumb
+                            path={cell.path}
+                            poster={thumbs[index]}
+                            livePreview={index === show.currentIndex}
+                          />
+                          <span className="cell-video-badge" aria-hidden>
+                            VIDEO
+                          </span>
+                        </>
+                      ) : (
+                        <img
+                          className="cell-thumb"
+                          src={thumbs[index] ?? fileSrc(cell.path)}
+                          alt=""
+                          draggable={false}
+                        />
+                      )
                     ) : (
                       <span className="cell-empty">空</span>
                     )}

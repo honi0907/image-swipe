@@ -19,6 +19,11 @@ tauri-plugin-dialog = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "macros", "time"] }
+uuid = "1"
+ble-peripheral-rust = { version = "0.2", optional = true }
+local-ip-address = { version = "0.6", optional = true }
+rouille = { version = "3", optional = true }
 
 [profile.release]
 codegen-units = 1
@@ -26,3 +31,9 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[features]
+default = ["ble-peripheral-rust", "local-ip-address", "rouille"]
+ble-peripheral-rust = ["dep:ble-peripheral-rust"]
+local-ip-address = ["dep:local-ip-address"]
+rouille = ["dep:rouille"]

@@ -3,6 +3,17 @@ import {
   isDefaultColorAdjust,
   withColorAdjust,
 } from "./colorAdjust";
+import {
+  type DrawableSource,
+  getCachedImage,
+  isDrawableReady,
+  isVideoPath,
+  loadDrawable,
+  mediaDimensions,
+  pauseInactiveVideos,
+  ensureVideoPlaying,
+  videoCacheKey,
+} from "./media";
 import type {
   ColorAdjustSettings,
   Direction,
@@ -29,46 +40,28 @@ export function easeT(t: number, easing: Easing): number {
   }
 }
 
-const imageBySrc = new Map<string, HTMLImageElement>();
-
-export function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const cached = imageBySrc.get(src);
-    if (cached && cached.complete && cached.naturalWidth > 0) {
-      resolve(cached);
-      return;
-    }
-    const img = new Image();
-    img.onload = () => {
-      imageBySrc.set(src, img);
-      resolve(img);
-    };
-    img.onerror = () => reject(new Error(`画像を読み込めません: ${src}`));
-    img.src = src;
-  });
-}
-
 function paintStatic(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  img: HTMLImageElement | null,
+  media: DrawableSource | null,
   colorAdjust: ColorAdjustSettings,
 ) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, w, h);
-  if (!img) {
+  if (!media) {
     return;
   }
-  drawLetterbox(ctx, img, w, h, 0, 0, colorAdjust);
+  drawLetterbox(ctx, media, w, h, 0, 0, colorAdjust);
 }
 
-/** 画像キャッシュがあれば再読み込みせず色だけ更新（スライダー操作中のちらつき防止） */
+/** 画像キャッシュがあれば再読み込みせず色だけ更新（動画ループ中は次フレームで色反映） */
 export function redrawStaticIfCached(
   canvas: HTMLCanvasElement,
   path: string | null,
   src: (path: string) => string,
   colorAdjust: ColorAdjustSettings,
+  audible = false,
 ): boolean {
   const ctx = canvas.getContext("2d");
   if (!ctx) {
@@ -84,9 +77,20 @@ export function redrawStaticIfCached(
     paintStatic(ctx, w, h, null, colorAdjust);
     return true;
   }
+  if (isVideoPath(path)) {
+    if (
+      staticLoopPath === path &&
+      staticLoopAudible === audible &&
+      staticLoopRaf !== 0
+    ) {
+      staticLoopColorAdjust = colorAdjust;
+      return true;
+    }
+    return false;
+  }
   const key = src(path);
-  const cached = imageBySrc.get(key);
-  if (!cached || !cached.complete || cached.naturalWidth <= 0) {
+  const cached = getCachedImage(key);
+  if (!cached) {
     return false;
   }
   paintStatic(ctx, w, h, cached, colorAdjust);
@@ -94,13 +98,14 @@ export function redrawStaticIfCached(
 }
 
 function fitRect(
-  img: HTMLImageElement,
+  media: DrawableSource,
   dx: number,
   dy: number,
   dw: number,
   dh: number,
 ): { x: number; y: number; w: number; h: number } {
-  const ir = img.naturalWidth / img.naturalHeight;
+  const { w: mw, h: mh } = mediaDimensions(media);
+  const ir = mw / mh;
   const cr = dw / dh;
   if (ir > cr) {
     const w = dw;
@@ -114,16 +119,16 @@ function fitRect(
 
 export function drawLetterbox(
   ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
+  media: DrawableSource,
   dw: number,
   dh: number,
   offsetX = 0,
   offsetY = 0,
   colorAdjust: ColorAdjustSettings = defaultColorAdjust(),
 ) {
-  const r = fitRect(img, 0, 0, dw, dh);
+  const r = fitRect(media, 0, 0, dw, dh);
   const paint = () => {
-    ctx.drawImage(img, r.x + offsetX, r.y + offsetY, r.w, r.h);
+    ctx.drawImage(media, r.x + offsetX, r.y + offsetY, r.w, r.h);
   };
   if (isDefaultColorAdjust(colorAdjust)) {
     paint();
@@ -236,7 +241,7 @@ function drawFrameToBlack(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  fromImg: HTMLImageElement | null,
+  fromMedia: DrawableSource | null,
   progress: number,
   settings: SwipeSettings,
   colorAdjust: ColorAdjustSettings,
@@ -244,13 +249,13 @@ function drawFrameToBlack(
   const kind: SwipeKind = settings.kind;
   const s = dirSign(settings.direction);
 
-  if (kind === "cut" || progress >= 1 || !fromImg) {
+  if (kind === "cut" || progress >= 1 || !fromMedia) {
     return;
   }
 
   if (kind === "fade") {
     ctx.globalAlpha = 1 - progress;
-    drawLetterbox(ctx, fromImg, w, h, 0, 0, colorAdjust);
+    drawLetterbox(ctx, fromMedia, w, h, 0, 0, colorAdjust);
     ctx.globalAlpha = 1;
     return;
   }
@@ -258,14 +263,14 @@ function drawFrameToBlack(
   if (kind === "slide" || kind === "push") {
     const ox = s.x * progress * w;
     const oy = s.y * progress * h;
-    drawLetterbox(ctx, fromImg, w, h, ox, oy, colorAdjust);
+    drawLetterbox(ctx, fromMedia, w, h, ox, oy, colorAdjust);
     return;
   }
 
   if (kind === "wipe") {
     ctx.save();
     clipFromWipe(ctx, w, h, 1 - progress, settings.direction);
-    drawLetterbox(ctx, fromImg, w, h, 0, 0, colorAdjust);
+    drawLetterbox(ctx, fromMedia, w, h, 0, 0, colorAdjust);
     ctx.restore();
   }
 }
@@ -274,8 +279,8 @@ export function drawFrame(
   ctx: CanvasRenderingContext2D,
   w: number,
   h: number,
-  fromImg: HTMLImageElement | null,
-  toImg: HTMLImageElement | null,
+  fromMedia: DrawableSource | null,
+  toMedia: DrawableSource | null,
   progress: number,
   settings: SwipeSettings,
   colorAdjust: ColorAdjustSettings,
@@ -285,45 +290,45 @@ export function drawFrame(
 
   const kind: SwipeKind = settings.kind;
 
-  if (!toImg) {
+  if (!toMedia) {
     if (kind === "cut") {
       return;
     }
-    drawFrameToBlack(ctx, w, h, fromImg, progress, settings, colorAdjust);
+    drawFrameToBlack(ctx, w, h, fromMedia, progress, settings, colorAdjust);
     return;
   }
 
   const s = dirSign(settings.direction);
 
   if (kind === "cut") {
-    drawLetterbox(ctx, toImg, w, h, 0, 0, colorAdjust);
+    drawLetterbox(ctx, toMedia, w, h, 0, 0, colorAdjust);
     return;
   }
 
   if (kind === "fade") {
-    if (fromImg && progress < 1) {
+    if (fromMedia && progress < 1) {
       ctx.globalAlpha = 1 - progress;
-      drawLetterbox(ctx, fromImg, w, h, 0, 0, colorAdjust);
+      drawLetterbox(ctx, fromMedia, w, h, 0, 0, colorAdjust);
     }
-    ctx.globalAlpha = fromImg ? progress : 1;
-    drawLetterbox(ctx, toImg, w, h, 0, 0, colorAdjust);
+    ctx.globalAlpha = fromMedia ? progress : 1;
+    drawLetterbox(ctx, toMedia, w, h, 0, 0, colorAdjust);
     ctx.globalAlpha = 1;
     return;
   }
 
-  if (fromImg) {
+  if (fromMedia) {
     if (kind === "slide") {
-      drawLetterbox(ctx, fromImg, w, h, 0, 0, colorAdjust);
+      drawLetterbox(ctx, fromMedia, w, h, 0, 0, colorAdjust);
     } else if (kind === "push") {
       const ox = s.x * progress * w;
       const oy = s.y * progress * h;
-      drawLetterbox(ctx, fromImg, w, h, ox, oy, colorAdjust);
+      drawLetterbox(ctx, fromMedia, w, h, ox, oy, colorAdjust);
     } else if (kind === "wipe") {
       ctx.save();
       ctx.beginPath();
       ctx.rect(0, 0, w, h);
       ctx.clip();
-      drawLetterbox(ctx, fromImg, w, h, 0, 0, colorAdjust);
+      drawLetterbox(ctx, fromMedia, w, h, 0, 0, colorAdjust);
       ctx.restore();
     }
   }
@@ -331,7 +336,7 @@ export function drawFrame(
   ctx.save();
   if (kind === "wipe") {
     clipWipe(ctx, w, h, progress, settings.direction);
-    drawLetterbox(ctx, toImg, w, h, 0, 0, colorAdjust);
+    drawLetterbox(ctx, toMedia, w, h, 0, 0, colorAdjust);
     ctx.restore();
     if (settings.edgeBlur > 0) {
       drawWipeSoftEdge(ctx, w, h, progress, settings.direction, settings.edgeBlur);
@@ -342,16 +347,67 @@ export function drawFrame(
   if (kind === "slide") {
     const toOx = -s.x * (1 - progress) * w;
     const toOy = -s.y * (1 - progress) * h;
-    drawLetterbox(ctx, toImg, w, h, toOx, toOy, colorAdjust);
+    drawLetterbox(ctx, toMedia, w, h, toOx, toOy, colorAdjust);
   } else if (kind === "push") {
     const toOx = s.x * (progress - 1) * w;
     const toOy = s.y * (progress - 1) * h;
-    drawLetterbox(ctx, toImg, w, h, toOx, toOy, colorAdjust);
+    drawLetterbox(ctx, toMedia, w, h, toOx, toOy, colorAdjust);
   }
   ctx.restore();
 }
 
 let activeRaf = 0;
+let staticLoopRaf = 0;
+let staticLoopPath: string | null = null;
+let staticLoopColorAdjust: ColorAdjustSettings = defaultColorAdjust();
+let staticLoopAudible = false;
+
+function cancelStaticLoop() {
+  cancelAnimationFrame(staticLoopRaf);
+  staticLoopRaf = 0;
+  staticLoopPath = null;
+}
+
+function stopAllAnimation() {
+  cancelAnimationFrame(activeRaf);
+  activeRaf = 0;
+  cancelStaticLoop();
+}
+
+function startStaticVideoLoop(
+  canvas: HTMLCanvasElement,
+  path: string,
+  media: HTMLVideoElement,
+  colorAdjust: ColorAdjustSettings,
+  audible: boolean,
+) {
+  staticLoopPath = path;
+  staticLoopColorAdjust = colorAdjust;
+  staticLoopAudible = audible;
+
+  const tick = () => {
+    if (staticLoopPath !== path) {
+      return;
+    }
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return;
+    }
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+    if (!isDrawableReady(media)) {
+      staticLoopRaf = requestAnimationFrame(tick);
+      return;
+    }
+    paintStatic(ctx, w, h, media, staticLoopColorAdjust);
+    staticLoopRaf = requestAnimationFrame(tick);
+  };
+  staticLoopRaf = requestAnimationFrame(tick);
+}
 
 export async function playTransition(
   canvas: HTMLCanvasElement,
@@ -361,8 +417,9 @@ export async function playTransition(
   startedAt: number,
   src: (path: string) => string,
   colorAdjust: ColorAdjustSettings = defaultColorAdjust(),
+  audible = false,
 ): Promise<void> {
-  cancelAnimationFrame(activeRaf);
+  stopAllAnimation();
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     return;
@@ -375,11 +432,43 @@ export async function playTransition(
     canvas.height = h;
   }
 
-  const fromImg = fromPath ? await loadImage(src(fromPath)) : null;
-  const toImg = toPath ? await loadImage(src(toPath)) : null;
+  const activeKeys = new Set<string>();
+  if (fromPath) {
+    activeKeys.add(videoCacheKey(fromPath, audible));
+  }
+  if (toPath) {
+    activeKeys.add(videoCacheKey(toPath, audible));
+  }
+  pauseInactiveVideos(activeKeys);
+
+  let fromMedia: Awaited<ReturnType<typeof loadDrawable>> | null = null;
+  let toMedia: Awaited<ReturnType<typeof loadDrawable>> | null = null;
+  try {
+    fromMedia = fromPath
+      ? await loadDrawable(fromPath, src(fromPath), audible)
+      : null;
+    toMedia = toPath ? await loadDrawable(toPath, src(toPath), audible) : null;
+  } catch (error) {
+    console.error("transition video load failed", error);
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, h);
+    return;
+  }
+
+  if (fromMedia instanceof HTMLVideoElement) {
+    await ensureVideoPlaying(fromMedia, audible);
+  }
+  if (toMedia instanceof HTMLVideoElement) {
+    await ensureVideoPlaying(toMedia, audible);
+  }
 
   if (settings.kind === "cut") {
-    drawFrame(ctx, w, h, fromImg, toImg, 1, settings, colorAdjust);
+    drawFrame(ctx, w, h, fromMedia, toMedia, 1, settings, colorAdjust);
+    if (fromPath && isVideoPath(fromPath)) {
+      if (fromMedia instanceof HTMLVideoElement) {
+        fromMedia.pause();
+      }
+    }
     return;
   }
 
@@ -389,8 +478,13 @@ export async function playTransition(
     const tick = () => {
       const raw = (Date.now() - startedAt) / durationMs;
       const t = easeT(Math.min(1, raw), settings.easing);
-      drawFrame(ctx, w, h, fromImg, toImg, t, settings, colorAdjust);
+      drawFrame(ctx, w, h, fromMedia, toMedia, t, settings, colorAdjust);
       if (raw >= 1) {
+        if (fromPath && isVideoPath(fromPath)) {
+          if (fromMedia instanceof HTMLVideoElement) {
+            fromMedia.pause();
+          }
+        }
         resolve();
         return;
       }
@@ -405,8 +499,9 @@ export async function drawStatic(
   path: string | null,
   src: (path: string) => string,
   colorAdjust: ColorAdjustSettings = defaultColorAdjust(),
+  audible = false,
 ): Promise<void> {
-  cancelAnimationFrame(activeRaf);
+  stopAllAnimation();
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     return;
@@ -417,6 +512,39 @@ export async function drawStatic(
     canvas.width = w;
     canvas.height = h;
   }
-  const img = path ? await loadImage(src(path)) : null;
-  paintStatic(ctx, w, h, img, colorAdjust);
+
+  if (!path) {
+    pauseInactiveVideos(new Set());
+    paintStatic(ctx, w, h, null, colorAdjust);
+    return;
+  }
+
+  const url = src(path);
+  const activeKeys = new Set([videoCacheKey(path, audible)]);
+  pauseInactiveVideos(activeKeys);
+
+  if (isVideoPath(path) && /\.(mov|m4v)$/i.test(path)) {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "#d7deea";
+    ctx.font = "16px sans-serif";
+    ctx.fillText("MOV を再生用に変換しています…", 24, 40);
+  }
+
+  let media: Awaited<ReturnType<typeof loadDrawable>> | null = null;
+  try {
+    media = await loadDrawable(path, url, audible);
+  } catch (error) {
+    console.error("static video load failed", error);
+    paintStatic(ctx, w, h, null, colorAdjust);
+    return;
+  }
+
+  if (media instanceof HTMLVideoElement) {
+    await ensureVideoPlaying(media, audible);
+    startStaticVideoLoop(canvas, path, media, colorAdjust, audible);
+    return;
+  }
+
+  paintStatic(ctx, w, h, media, colorAdjust);
 }

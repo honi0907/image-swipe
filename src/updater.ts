@@ -16,6 +16,13 @@ export async function findUpdate(): Promise<Update | null> {
   return check();
 }
 
+export function formatUpdaterError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
 export async function downloadInstall(
   update: Update,
   onPercent: (percent: number | null) => void,

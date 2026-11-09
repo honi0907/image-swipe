@@ -1,0 +1,9 @@
+{
+  "name": "image-swipe リモート",
+  "short_name": "swipe リモート",
+  "display": "standalone",
+  "background_color": "#121212",
+  "theme_color": "#121212",
+  "start_url": "/",
+  "lang": "ja"
+}

@@ -60,3 +60,18 @@ CI を待たずに配布用 exe が欲しいとき:
 ## 初回セットアップ（済）
 
 - 署名鍵: `%USERPROFILE%\.tauri\swipe.key`（ローカル保管・コミットしない）
+
+## スマホリモート（BLE / 同一 Wi‑Fi）
+
+1. PC で image-swipe を起動し、**Windows の Bluetooth を ON** にする
+2. 操作画面 **リモート** の **スマホ用 QR（推奨）** を Android Chrome で開く（`https://honi0907.github.io/image-swipe/remote.html`・**同一 Wi‑Fi 不要**）
+   - 初回配信: GitHub の **Settings → Pages → Build and deployment: GitHub Actions** を有効にし、`main` を push して [Remote page ワークフロー](.github/workflows/remote-page.yml) が成功するのを待つ
+   - 404 のとき: リリース同梱の `remote.html` URL（リモートメニュー内「リリース用」）を使う
+3. **Bluetooth 接続** → デバイス名 `image-swipe-remote` を選択
+4. **次へ** またはコマ番号で送出
+
+LAN の QR（`http://<PCのLAN IP>:17342/`）は同一 Wi‑Fi でページを読み込む用。PC では開くがスマホで開かないときはファイアウォールまたは **ゲスト Wi‑Fi の端末隔離** が原因のことが多い → **スマホ用 QR** を使う。
+
+- BLE サービス UUID: `6e6f0001-7e82-4e5f-8e2e-0e8e8e8e8e8e`
+- 特性 UUID: `6e6f0002-7e82-4e5f-8e2e-0e8e8e8e8e8e`
+- iOS Safari は Web Bluetooth 非対応のため、初版は Android Chrome を想定（Wi‑Fi のみ POST `/cue` も可）

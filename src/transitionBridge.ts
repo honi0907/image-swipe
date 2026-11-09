@@ -43,6 +43,7 @@ export function listenProgramEvents(
 export async function runTransitionOnCanvas(
   canvas: HTMLCanvasElement,
   payload: TransitionPayload,
+  audible = false,
 ): Promise<void> {
   await playTransition(
     canvas,
@@ -52,6 +53,7 @@ export async function runTransitionOnCanvas(
     payload.startedAt,
     fileSrc,
     payload.colorAdjust ?? defaultColorAdjust(),
+    audible,
   );
 }
 
@@ -59,6 +61,7 @@ export async function runStaticOnCanvas(
   canvas: HTMLCanvasElement,
   path: string | null,
   colorAdjust = defaultColorAdjust(),
+  audible = false,
 ): Promise<void> {
-  await drawStatic(canvas, path, fileSrc, colorAdjust);
+  await drawStatic(canvas, path, fileSrc, colorAdjust, audible);
 }

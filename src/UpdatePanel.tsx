@@ -4,6 +4,7 @@ import {
   appVersion,
   downloadInstall,
   findUpdate,
+  formatUpdaterError,
   updateUiOpen,
 } from "./updater";
 
@@ -27,7 +28,8 @@ export function UpdatePanel() {
       const update = await findUpdate();
       if (!update) {
         if (!fromStartup) {
-          setNote("最新バージョンです");
+          const current = await appVersion();
+          setNote(`v${current} は配信されている最新版です`);
           setPhase("note");
         }
         return;
@@ -35,9 +37,17 @@ export function UpdatePanel() {
       setPending(update);
       setNextVersion(update.version);
       setPhase("prompt");
-    } catch {
+    } catch (error) {
+      console.error("updater check failed", error);
       if (!fromStartup) {
-        setNote("更新を確認できませんでした");
+        const detail = formatUpdaterError(error);
+        const short =
+          detail.length > 120 ? `${detail.slice(0, 117)}…` : detail;
+        setNote(
+          short
+            ? `更新を確認できませんでした（${short}）`
+            : "更新を確認できませんでした",
+        );
         setPhase("note");
       }
     } finally {
