@@ -197,7 +197,7 @@ export function RemotePanel() {
         </p>
       )}
       <ul className="remote-panel-checklist">
-        <li>スマホ用 QR: 読み取り後リンクをタップ → Chrome で開く → Bluetooth 接続</li>
+        <li>Bluetooth 接続で一覧が空 → ページの「一覧から接続」で PC を選択（Windows は名前が出ないことがあります）</li>
         <li>LAN が使えない会場でも Bluetooth だけで送出できます</li>
         <li>LAN を使う場合のみ PC とスマホを同一 Wi‑Fi に</li>
       </ul>

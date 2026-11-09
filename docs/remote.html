@@ -52,6 +52,10 @@
         border-color: #7ab;
         background: #1e3a4a;
       }
+      #connect-any {
+        flex: 1 1 100%;
+        font-size: 0.85rem;
+      }
       button:disabled {
         opacity: 0.45;
       }
@@ -73,6 +77,7 @@
     <p class="status" id="status">準備中…</p>
     <div class="row">
       <button type="button" class="primary" id="connect">Bluetooth 接続</button>
+      <button type="button" id="connect-any">一覧から接続（名前が出ないとき）</button>
       <button type="button" class="primary" id="next" disabled>次へ（Space 相当）</button>
     </div>
     <div class="grid" id="grid"></div>
@@ -155,29 +160,54 @@
         grid.appendChild(b);
       }
 
-      connectBtn.addEventListener("click", async () => {
+      async function attachDevice(device) {
+        setStatus("接続中…");
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService(SERVICE_UUID);
+        bleChar = await service.getCharacteristic(CHAR_UUID);
+        setStatus("BLE 接続済み（" + (device.name || "PC") + "）");
+        setPlayEnabled(true);
+        connectBtn.textContent = "Bluetooth 再接続";
+      }
+
+      async function pickDevice(listAll) {
         if (!navigator.bluetooth) {
-          setStatus("このブラウザは Web Bluetooth 非対応です。");
-          return;
+          throw new Error("Web Bluetooth 非対応");
         }
+        setStatus("デバイスを選択…");
+        const request = listAll
+          ? {
+              acceptAllDevices: true,
+              optionalServices: [SERVICE_UUID],
+            }
+          : {
+              filters: [{ services: [SERVICE_UUID] }],
+              optionalServices: [SERVICE_UUID],
+            };
+        const device = await navigator.bluetooth.requestDevice(request);
+        await attachDevice(device);
+      }
+
+      connectBtn.addEventListener("click", async () => {
         try {
-          setStatus("デバイスを選択…");
-          const device = await navigator.bluetooth.requestDevice({
-            filters: [{ namePrefix: DEVICE_NAME_PREFIX }],
-            optionalServices: [SERVICE_UUID],
-          });
-          setStatus("接続中…");
-          const server = await device.gatt.connect();
-          const service = await server.getPrimaryService(SERVICE_UUID);
-          bleChar = await service.getCharacteristic(CHAR_UUID);
-          setStatus("BLE 接続済み（" + (device.name || DEVICE_NAME_PREFIX) + "）");
-          setPlayEnabled(true);
-          connectBtn.textContent = "Bluetooth 再接続";
+          await pickDevice(false);
         } catch (e) {
-          setStatus("BLE: " + e.message);
+          setStatus(
+            "BLE: " +
+              e.message +
+              " — 「一覧から接続」を試すか、PC 側 image-swipe を起動・Bluetooth ON を確認",
+          );
           if (httpReady) {
             setPlayEnabled(true);
           }
+        }
+      });
+
+      document.getElementById("connect-any").addEventListener("click", async () => {
+        try {
+          await pickDevice(true);
+        } catch (e) {
+          setStatus("BLE: " + e.message);
         }
       });
 
@@ -208,7 +238,7 @@
           });
       } else {
         hintEl.innerHTML =
-          "モバイル回線または Wi‑Fi で表示できます（<strong>同一 Wi‑Fi は不要</strong>）。PC の Bluetooth を ON にして <strong>Bluetooth 接続</strong> を押してください。";
+          "モバイル回線または Wi‑Fi で表示できます（<strong>同一 Wi‑Fi は不要</strong>）。PC で image-swipe を起動し Bluetooth ON → <strong>Bluetooth 接続</strong>。一覧が空のときは <strong>一覧から接続</strong> で PC 名を選んでください（Windows は image-swipe という名前を広告しません）。";
         setStatus("Bluetooth 接続後に操作できます（PC に近づけてください）");
       }
     </script>
