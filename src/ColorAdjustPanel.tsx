@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ColorAdjustSettings } from "./types";
+import { CollapsibleSection } from "./CollapsibleSection";
 import { defaultColorAdjust } from "./colorAdjust";
 import { RangeField } from "./RangeField";
 
@@ -42,14 +43,19 @@ export function ColorAdjustPanel({ value, onLiveChange, onCommit }: Props) {
   };
 
   return (
-    <section className="color-adjust-panel" aria-label="色調整">
-      <header className="color-adjust-head">
-        <h2 className="color-adjust-title">色調整</h2>
-        <span className="color-adjust-hint">出力に反映</span>
-        <button type="button" className="btn-ghost btn-compact" onClick={reset}>
-          リセット
-        </button>
-      </header>
+    <CollapsibleSection
+      storageId="swipe-color-adjust"
+      title="色調整"
+      className="color-adjust-panel"
+      headerExtra={
+        <>
+          <span className="color-adjust-hint">出力に反映</span>
+          <button type="button" className="btn-ghost btn-compact" onClick={reset}>
+            リセット
+          </button>
+        </>
+      }
+    >
       <div className="color-adjust-grid">
         {SLIDERS.map(({ key, label, accent }) => (
           <RangeField
@@ -66,6 +72,6 @@ export function ColorAdjustPanel({ value, onLiveChange, onCommit }: Props) {
           />
         ))}
       </div>
-    </section>
+    </CollapsibleSection>
   );
 }

@@ -102,11 +102,13 @@
       const statusEl = document.getElementById("status");
       const hintEl = document.getElementById("hint");
       const connectBtn = document.getElementById("connect");
+      const connectAnyBtn = document.getElementById("connect-any");
       const nextBtn = document.getElementById("next");
       const grid = document.getElementById("grid");
 
       let bleChar = null;
       let httpReady = false;
+      let bleConnecting = false;
 
       function cueBytes(kind, index) {
         if (kind === "next") return new Uint8Array([0x01]);
@@ -170,46 +172,65 @@
         connectBtn.textContent = "Bluetooth 再接続";
       }
 
+      function setBleButtonsEnabled(on) {
+        connectBtn.disabled = !on;
+        connectAnyBtn.disabled = !on;
+      }
+
       async function pickDevice(listAll) {
+        if (bleConnecting) {
+          return;
+        }
         if (!navigator.bluetooth) {
           throw new Error("Web Bluetooth 非対応");
         }
-        setStatus("デバイスを選択…");
-        const request = listAll
-          ? {
-              acceptAllDevices: true,
-              optionalServices: [SERVICE_UUID],
-            }
-          : {
-              filters: [{ services: [SERVICE_UUID] }],
-              optionalServices: [SERVICE_UUID],
-            };
-        const device = await navigator.bluetooth.requestDevice(request);
-        await attachDevice(device);
+        bleConnecting = true;
+        setBleButtonsEnabled(false);
+        try {
+          setStatus("デバイスを選択…");
+          const request = listAll
+            ? {
+                acceptAllDevices: true,
+                optionalServices: [SERVICE_UUID],
+              }
+            : {
+                filters: [{ services: [SERVICE_UUID] }],
+                optionalServices: [SERVICE_UUID],
+              };
+          const device = await navigator.bluetooth.requestDevice(request);
+          await attachDevice(device);
+        } finally {
+          bleConnecting = false;
+          setBleButtonsEnabled(true);
+        }
       }
 
-      connectBtn.addEventListener("click", async () => {
-        try {
-          await pickDevice(false);
-        } catch (e) {
-          setStatus(
-            "BLE: " +
-              e.message +
-              " — 「一覧から接続」を試すか、PC 側 image-swipe を起動・Bluetooth ON を確認",
-          );
-          if (httpReady) {
-            setPlayEnabled(true);
-          }
-        }
-      });
+      connectBtn.addEventListener(
+        "click",
+        () => {
+          pickDevice(false).catch((e) => {
+            setStatus(
+              "BLE: " +
+                e.message +
+                " — 「一覧から接続」を試すか、PC 側 image-swipe を起動・Bluetooth ON を確認",
+            );
+            if (httpReady) {
+              setPlayEnabled(true);
+            }
+          });
+        },
+        { passive: true },
+      );
 
-      document.getElementById("connect-any").addEventListener("click", async () => {
-        try {
-          await pickDevice(true);
-        } catch (e) {
-          setStatus("BLE: " + e.message);
-        }
-      });
+      connectAnyBtn.addEventListener(
+        "click",
+        () => {
+          pickDevice(true).catch((e) => {
+            setStatus("BLE: " + e.message);
+          });
+        },
+        { passive: true },
+      );
 
       nextBtn.addEventListener("click", () => {
         sendCue("next").catch((e) => setStatus("送出失敗: " + e.message));

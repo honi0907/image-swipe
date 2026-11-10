@@ -824,12 +824,14 @@ export function Control() {
         <aside className="control-aside">
           <SettingsPanel
             title="全体のスワイプ設定"
+            collapseId="swipe-global"
             settings={show.globalSettings}
             hint="方向＝今の画像が出ていく向き"
             onChange={(globalSettings) => persist({ ...show, globalSettings })}
           />
           <SettingsPanel
             title={`コマ ${show.selectedIndex + 1} の個別設定`}
+            collapseId="swipe-cell"
             settings={cellOverride.settings}
             overrideMode={{
               enabled: cellOverride.enabled,

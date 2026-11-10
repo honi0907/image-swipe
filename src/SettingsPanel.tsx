@@ -1,4 +1,5 @@
 import type { CellOverride, Direction, Easing, SwipeKind, SwipeSettings } from "./types";
+import { CollapsibleSection } from "./CollapsibleSection";
 import { RangeField } from "./RangeField";
 
 const KIND_LABELS: Record<SwipeKind, string> = {
@@ -31,6 +32,7 @@ const EASE_LABELS: Record<Easing, string> = {
 
 interface Props {
   title: string;
+  collapseId: string;
   settings: SwipeSettings;
   onChange: (s: SwipeSettings) => void;
   overrideMode?: { enabled: boolean; onToggle: (v: boolean) => void };
@@ -39,6 +41,7 @@ interface Props {
 
 export function SettingsPanel({
   title,
+  collapseId,
   settings,
   onChange,
   overrideMode,
@@ -50,10 +53,12 @@ export function SettingsPanel({
   const noMotion = fade || cut;
 
   return (
-    <section className="settings-panel">
-      <header className="settings-head">
-        <h2>{title}</h2>
-        {overrideMode && (
+    <CollapsibleSection
+      storageId={collapseId}
+      title={title}
+      className="settings-panel"
+      headerExtra={
+        overrideMode ? (
           <label className="override-toggle">
             <input
               type="checkbox"
@@ -62,8 +67,9 @@ export function SettingsPanel({
             />
             個別設定を使う
           </label>
-        )}
-      </header>
+        ) : undefined
+      }
+    >
       {hint && <p className="settings-hint">{hint}</p>}
 
       <div
@@ -158,7 +164,7 @@ export function SettingsPanel({
           onChange={(edgeBlur) => onChange({ ...settings, edgeBlur })}
         />
       </div>
-    </section>
+    </CollapsibleSection>
   );
 }
 
